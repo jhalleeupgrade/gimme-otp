@@ -4,6 +4,7 @@ import subprocess
 import requests
 import time
 import json
+from os import path
 
 def load_credentials(file_path):
     with open(file_path, 'r') as file:
@@ -11,8 +12,11 @@ def load_credentials(file_path):
 
 def port_forward():
     # Run kubectl port-forward command
-    process = subprocess.Popen(["kubectl", "port-forward", "postgres-0", "5432:5432"])
-    time.sleep(5)  # Wait for port-forwarding to be established
+    process = subprocess.Popen(
+        ["kubectl", "port-forward", "postgres-0", "5432:5432"],
+        stdout=subprocess.DEVNULL
+        )
+    time.sleep(1)  # Wait for port-forwarding to be established
     return process
 
 def decrypt_value(encrypted_value, decrypt_url):
@@ -30,12 +34,12 @@ def decrypt_value(encrypted_value, decrypt_url):
     else:
         response.raise_for_status()
 
-def connect_and_query(env, strategy, login_id=None):
+def get_otp(env, strategy, login_id=None):
     port_forward_process = None
     connection = None
     try:
         # Load credentials from file
-        creds = load_credentials('credentials.json')
+        creds = load_credentials(path.abspath(path.join(path.dirname(__file__), 'credentials.json')))
 
         # If environment is 'ondemand', set up port-forwarding
         if env == "ondemand":
@@ -67,12 +71,10 @@ def connect_and_query(env, strategy, login_id=None):
             print(f"Unknown strategy: {strategy}")
             return
 
-        # Retrieve query results
-        records = cursor.fetchall()
-        for record in records:
-            encrypted_value = record[0]
-            decrypted_value = decrypt_value(encrypted_value, env_creds["decrypt_url"])
-            print(decrypted_value)
+        # Retrieve query result
+        encrypted_value = cursor.fetchone()[0]
+        decrypted_value = decrypt_value(encrypted_value, env_creds["decrypt_url"])
+        print(decrypted_value)
 
     except Exception as error:
         print(f"Error: {error}")
@@ -84,10 +86,11 @@ def connect_and_query(env, strategy, login_id=None):
             port_forward_process.terminate()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Connect to PostgreSQL database and perform a query.")
+    print("Fetching OTP...")
+    parser = argparse.ArgumentParser(description="Get an OTP to log your user in!")
     parser.add_argument("env", choices=["ondemand", "main", "stage", "preprod"], help="The environment to connect to.")
     parser.add_argument("strategy", choices=["by-login", "recent"], help="The strategy to use for querying.")
     parser.add_argument("--login-id", help="The login ID to use for the by-login strategy.")
     args = parser.parse_args()
 
-    connect_and_query(args.env, args.strategy, args.login_id)
+    get_otp(args.env, args.strategy, args.login_id)
